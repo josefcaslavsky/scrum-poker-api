@@ -16,10 +16,9 @@ return new class extends Migration
             $table->foreignId('session_id')->constrained()->onDelete('cascade');
             $table->string('name', 50);
             $table->string('emoji', 10)->default('👤');
-            $table->boolean('is_host')->default(false);
             $table->timestamps();
 
-            $table->index(['session_id', 'is_host']);
+            $table->index('session_id');
         });
     }
 

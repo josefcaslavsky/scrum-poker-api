@@ -12,11 +12,6 @@ class Participant extends Model
         'session_id',
         'name',
         'emoji',
-        'is_host',
-    ];
-
-    protected $casts = [
-        'is_host' => 'boolean',
     ];
 
     public function session(): BelongsTo
