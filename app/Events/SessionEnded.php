@@ -8,13 +8,13 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class CardsRevealed implements ShouldBroadcastNow
+class SessionEnded implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
         public string $sessionCode,
-        public array $votes
+        public string $reason = 'Host left the session'
     ) {}
 
     /**
@@ -33,8 +33,8 @@ class CardsRevealed implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
-            'votes' => $this->votes,
-            'status' => 'revealed',
+            'reason' => $this->reason,
+            'status' => 'ended',
         ];
     }
 }

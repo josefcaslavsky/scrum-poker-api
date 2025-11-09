@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Participant;
 use App\Models\PokerSession;
+use App\Models\Vote;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -277,5 +278,197 @@ class SessionTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJson(['votes' => []]);
+    }
+
+    public function test_participant_can_leave_session(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'LEAV01',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+
+        $participant = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        $response = $this->deleteJson("/api/sessions/LEAV01/participants/{$participant->id}");
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'message' => 'Participant left session',
+                'session_ended' => false,
+            ])
+            ->assertJsonStructure(['remaining_participants']);
+
+        // Participant should be deleted
+        $this->assertDatabaseMissing('participants', [
+            'id' => $participant->id,
+        ]);
+
+        // Session should still exist
+        $this->assertDatabaseHas('poker_sessions', [
+            'code' => 'LEAV01',
+        ]);
+
+        // Host should still exist
+        $this->assertDatabaseHas('participants', [
+            'id' => $host->id,
+        ]);
+    }
+
+    public function test_host_leaving_ends_session(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'LEAV02',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+
+        $participant = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        $response = $this->deleteJson("/api/sessions/LEAV02/participants/{$host->id}");
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'message' => 'Session ended - host left',
+                'session_ended' => true,
+            ]);
+
+        // Session should be deleted
+        $this->assertDatabaseMissing('poker_sessions', [
+            'code' => 'LEAV02',
+        ]);
+
+        // All participants should be deleted (cascade)
+        $this->assertDatabaseMissing('participants', [
+            'id' => $host->id,
+        ]);
+        $this->assertDatabaseMissing('participants', [
+            'id' => $participant->id,
+        ]);
+    }
+
+    public function test_leaving_keeps_votes_in_database(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'LEAV03',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+
+        $participant = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        // Create a vote for the participant
+        $vote = Vote::create([
+            'session_id' => $session->id,
+            'participant_id' => $participant->id,
+            'round' => 1,
+            'card_value' => '5',
+            'voted_at' => now(),
+        ]);
+
+        // Participant leaves
+        $response = $this->deleteJson("/api/sessions/LEAV03/participants/{$participant->id}");
+
+        $response->assertStatus(200);
+
+        // Participant should be deleted
+        $this->assertDatabaseMissing('participants', [
+            'id' => $participant->id,
+        ]);
+
+        // Vote should still exist (for history/analytics)
+        // participant_id will be NULL since the participant was deleted
+        $this->assertDatabaseHas('votes', [
+            'id' => $vote->id,
+            'participant_id' => null,
+            'card_value' => '5',
+        ]);
+    }
+
+    public function test_cannot_leave_non_existent_session(): void
+    {
+        $response = $this->deleteJson('/api/sessions/NOTFND/participants/999');
+
+        $response->assertStatus(404);
+    }
+
+    public function test_cannot_leave_as_non_existent_participant(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'LEAV04',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $response = $this->deleteJson('/api/sessions/LEAV04/participants/999');
+
+        $response->assertStatus(404);
+    }
+
+    public function test_cannot_leave_participant_from_different_session(): void
+    {
+        $session1 = PokerSession::create([
+            'code' => 'LEAV05',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $session2 = PokerSession::create([
+            'code' => 'LEAV06',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $participant = Participant::create([
+            'session_id' => $session2->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        // Try to remove participant from session1 (but they belong to session2)
+        $response = $this->deleteJson("/api/sessions/LEAV05/participants/{$participant->id}");
+
+        $response->assertStatus(404);
+
+        // Participant should still exist
+        $this->assertDatabaseHas('participants', [
+            'id' => $participant->id,
+        ]);
     }
 }

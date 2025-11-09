@@ -113,6 +113,13 @@ class VoteTest extends TestCase
             'emoji' => '👩‍💻',
         ]);
 
+        // Add second participant to prevent auto-reveal
+        Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
         // First vote
         $this->postJson("/api/sessions/VOTE04/vote", [
             'participant_id' => $participant->id,
@@ -196,14 +203,21 @@ class VoteTest extends TestCase
             'emoji' => '👩‍💻',
         ]);
 
+        // Add second participant to prevent auto-reveal
+        Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
         // Vote in round 1
         $this->postJson("/api/sessions/VOTE06/vote", [
             'participant_id' => $participant->id,
             'card_value' => '5',
         ]);
 
-        // Move to round 2
-        $session->update(['current_round' => 2]);
+        // Move to round 2 and reset to voting status
+        $session->update(['current_round' => 2, 'status' => 'voting']);
 
         // Vote in round 2
         $this->postJson("/api/sessions/VOTE06/vote", [
@@ -286,6 +300,13 @@ class VoteTest extends TestCase
             'emoji' => '👩‍💻',
         ]);
 
+        // Add second participant to prevent auto-reveal
+        Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
         $cardValues = ['1', '2', '3', '5', '8', '13', '21', '?', '☕'];
 
         foreach ($cardValues as $value) {
@@ -296,5 +317,96 @@ class VoteTest extends TestCase
 
             $response->assertStatus(200);
         }
+    }
+
+    public function test_auto_reveals_when_all_participants_vote(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'VOTE10',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $alice = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Alice',
+            'emoji' => '👩‍💻',
+        ]);
+
+        $bob = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        // Alice votes - should not auto-reveal yet
+        $response = $this->postJson("/api/sessions/VOTE10/vote", [
+            'participant_id' => $alice->id,
+            'card_value' => '5',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson(['auto_revealed' => false]);
+
+        $session->refresh();
+        $this->assertEquals('voting', $session->status);
+
+        // Bob votes - should auto-reveal (2/2 voted)
+        $response = $this->postJson("/api/sessions/VOTE10/vote", [
+            'participant_id' => $bob->id,
+            'card_value' => '8',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson(['auto_revealed' => true]);
+
+        // Verify session status changed to revealed
+        $session->refresh();
+        $this->assertEquals('revealed', $session->status);
+    }
+
+    public function test_does_not_auto_reveal_with_partial_votes(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'VOTE11',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $alice = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Alice',
+            'emoji' => '👩‍💻',
+        ]);
+
+        $bob = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Bob',
+            'emoji' => '👨‍💼',
+        ]);
+
+        $charlie = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Charlie',
+            'emoji' => '🧑‍💻',
+        ]);
+
+        // Only 2/3 vote
+        $this->postJson("/api/sessions/VOTE11/vote", [
+            'participant_id' => $alice->id,
+            'card_value' => '5',
+        ]);
+
+        $response = $this->postJson("/api/sessions/VOTE11/vote", [
+            'participant_id' => $bob->id,
+            'card_value' => '8',
+        ]);
+
+        // Should NOT auto-reveal (only 2/3 voted)
+        $response->assertStatus(200)
+            ->assertJson(['auto_revealed' => false]);
+
+        $session->refresh();
+        $this->assertEquals('voting', $session->status);
     }
 }

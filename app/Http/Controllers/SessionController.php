@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Events\NextRoundStarted;
 use App\Events\ParticipantJoined;
+use App\Events\ParticipantLeft;
+use App\Events\SessionEnded;
 use App\Events\CardsRevealed;
 use App\Events\VotingStarted;
 use App\Models\PokerSession;
@@ -179,5 +181,56 @@ class SessionController extends Controller
             'participants' => $session->participants,
             'votes' => $session->status === 'revealed' ? $session->currentRoundVotes : [],
         ]);
+    }
+
+    /**
+     * Leave session (participant leaves or disconnects)
+     * DELETE /api/sessions/{code}/participants/{participantId}
+     */
+    public function leave(string $code, int $participantId)
+    {
+        $session = PokerSession::where('code', $code)->firstOrFail();
+        $participant = Participant::where('id', $participantId)
+            ->where('session_id', $session->id)
+            ->firstOrFail();
+
+        // Check if participant is the host
+        $isHost = $session->host_id === $participant->id;
+
+        if ($isHost) {
+            // Host is leaving - end the entire session
+            broadcast(new SessionEnded($code));
+
+            // Delete session (cascade will handle participants and votes)
+            $session->delete();
+
+            return response()->json([
+                'message' => 'Session ended - host left',
+                'session_ended' => true,
+            ]);
+        } else {
+            // Regular participant leaving
+            $participantName = $participant->name;
+
+            // Delete participant (but keep their votes for history)
+            $participant->delete();
+
+            // Get remaining participants
+            $remainingParticipants = $session->participants()->get()->toArray();
+
+            // Broadcast participant left event
+            broadcast(new ParticipantLeft(
+                $code,
+                $participantId,
+                $participantName,
+                $remainingParticipants
+            ));
+
+            return response()->json([
+                'message' => 'Participant left session',
+                'session_ended' => false,
+                'remaining_participants' => $remainingParticipants,
+            ]);
+        }
     }
 }

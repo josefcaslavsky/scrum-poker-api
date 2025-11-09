@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\CardsRevealed;
 use App\Events\VoteSubmitted as VoteSubmittedEvent;
 use App\Models\PokerSession;
 use App\Models\Vote;
@@ -44,10 +45,29 @@ class VoteController extends Controller
 
         broadcast(new VoteSubmittedEvent($code, $validated['participant_id']));
 
+        // Auto-reveal if all participants have voted
+        $totalParticipants = $session->participants()->count();
+        $totalVotes = Vote::where([
+            'session_id' => $session->id,
+            'round' => $session->current_round,
+        ])->count();
+
+        $autoRevealed = false;
+        if ($totalParticipants > 0 && $totalVotes >= $totalParticipants) {
+            // All participants have voted - auto reveal
+            $session->update(['status' => 'revealed']);
+
+            $votes = $session->currentRoundVotes()->with('participant')->get();
+            broadcast(new CardsRevealed($code, $votes->toArray()));
+
+            $autoRevealed = true;
+        }
+
         return response()->json([
             'vote_id' => $vote->id,
             'card_value' => $vote->card_value,
             'voted_at' => $vote->voted_at,
+            'auto_revealed' => $autoRevealed,
         ]);
     }
 }
