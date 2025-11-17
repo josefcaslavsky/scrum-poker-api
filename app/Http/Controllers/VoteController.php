@@ -17,11 +17,19 @@ class VoteController extends Controller
     public function vote(Request $request, string $code)
     {
         $validated = $request->validate([
-            'participant_id' => 'required|exists:participants,id',
             'card_value' => 'required|string|max:10',
         ]);
 
         $session = PokerSession::where('code', $code)->firstOrFail();
+        $participant = auth()->user();
+
+        // Verify participant belongs to this session
+        if ($participant->session_id !== $session->id) {
+            return response()->json([
+                'error' => 'Forbidden',
+                'message' => 'You are not a member of this session',
+            ], 403);
+        }
 
         // Validate session status
         if ($session->status !== 'voting') {
@@ -34,7 +42,7 @@ class VoteController extends Controller
         $vote = Vote::updateOrCreate(
             [
                 'session_id' => $session->id,
-                'participant_id' => $validated['participant_id'],
+                'participant_id' => $participant->id,
                 'round' => $session->current_round,
             ],
             [
@@ -43,7 +51,7 @@ class VoteController extends Controller
             ]
         );
 
-        broadcast(new VoteSubmittedEvent($code, $validated['participant_id']));
+        broadcast(new VoteSubmittedEvent($code, $participant->id));
 
         // Auto-reveal if all participants have voted
         $totalParticipants = $session->participants()->count();

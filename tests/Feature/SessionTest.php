@@ -12,42 +12,50 @@ class SessionTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $apiKey = 'scrum-poker-internal-2025';
+
     public function test_can_create_session(): void
     {
         $response = $this->postJson('/api/sessions', [
             'host_name' => 'Alice',
             'host_emoji' => '👩‍💻',
+        ], [
+            'X-API-Key' => $this->apiKey,
         ]);
 
         $response->assertStatus(201)
             ->assertJsonStructure([
-                'code',
-                'session_id',
-                'participant_id',
-                'status',
-                'current_round',
+                'session' => ['code', 'id', 'status', 'current_round'],
+                'participant' => ['id', 'name', 'emoji'],
+                'token',
             ])
             ->assertJson([
-                'status' => 'waiting',
-                'current_round' => 1,
+                'session' => [
+                    'status' => 'waiting',
+                    'current_round' => 1,
+                ],
+                'participant' => [
+                    'name' => 'Alice',
+                    'emoji' => '👩‍💻',
+                ],
             ]);
 
         $this->assertDatabaseHas('poker_sessions', [
-            'code' => $response->json('code'),
+            'code' => $response->json('session.code'),
             'status' => 'waiting',
             'current_round' => 1,
         ]);
 
         $this->assertDatabaseHas('participants', [
-            'id' => $response->json('participant_id'),
+            'id' => $response->json('participant.id'),
             'name' => 'Alice',
             'emoji' => '👩‍💻',
         ]);
 
         // Verify the participant is set as host in the session
         $this->assertDatabaseHas('poker_sessions', [
-            'code' => $response->json('code'),
-            'host_id' => $response->json('participant_id'),
+            'code' => $response->json('session.code'),
+            'host_id' => $response->json('participant.id'),
         ]);
     }
 
@@ -56,9 +64,11 @@ class SessionTest extends TestCase
         $response = $this->postJson('/api/sessions', [
             'host_name' => 'Test',
             'host_emoji' => '🧪',
+        ], [
+            'X-API-Key' => $this->apiKey,
         ]);
 
-        $code = $response->json('code');
+        $code = $response->json('session.code');
         $this->assertEquals(6, strlen($code));
         $this->assertMatchesRegularExpression('/^[A-Z0-9]{6}$/', $code);
     }
@@ -82,15 +92,16 @@ class SessionTest extends TestCase
         $response = $this->postJson("/api/sessions/TEST01/join", [
             'name' => 'Bob',
             'emoji' => '👨‍💼',
+        ], [
+            'X-API-Key' => $this->apiKey,
         ]);
 
         $response->assertStatus(200)
             ->assertJsonStructure([
-                'session_id',
-                'participant_id',
-                'status',
-                'current_round',
+                'participant' => ['id', 'name', 'emoji'],
+                'session',
                 'participants',
+                'token',
             ]);
 
         $this->assertDatabaseHas('participants', [
@@ -105,6 +116,8 @@ class SessionTest extends TestCase
         $response = $this->postJson('/api/sessions/NOTFND/join', [
             'name' => 'Bob',
             'emoji' => '👨‍💼',
+        ], [
+            'X-API-Key' => $this->apiKey,
         ]);
 
         $response->assertStatus(404);
@@ -118,7 +131,18 @@ class SessionTest extends TestCase
             'status' => 'waiting',
         ]);
 
-        $response = $this->postJson('/api/sessions/TEST02/start');
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->postJson('/api/sessions/TEST02/start', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -140,7 +164,18 @@ class SessionTest extends TestCase
             'status' => 'voting',
         ]);
 
-        $response = $this->postJson('/api/sessions/TEST03/start');
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->postJson('/api/sessions/TEST03/start', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(400)
             ->assertJson([
@@ -156,15 +191,18 @@ class SessionTest extends TestCase
             'status' => 'voting',
         ]);
 
-        $participant = Participant::create([
+        $host = Participant::create([
             'session_id' => $session->id,
             'name' => 'Alice',
             'emoji' => '👩‍💻',
         ]);
 
-        $session->update(['host_id' => $participant->id]);
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
 
-        $response = $this->postJson('/api/sessions/TEST04/reveal');
+        $response = $this->postJson('/api/sessions/TEST04/reveal', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -186,7 +224,18 @@ class SessionTest extends TestCase
             'status' => 'waiting',
         ]);
 
-        $response = $this->postJson('/api/sessions/TEST05/reveal');
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->postJson('/api/sessions/TEST05/reveal', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(400)
             ->assertJson([
@@ -202,7 +251,18 @@ class SessionTest extends TestCase
             'status' => 'revealed',
         ]);
 
-        $response = $this->postJson('/api/sessions/TEST06/next-round');
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->postJson('/api/sessions/TEST06/next-round', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -225,7 +285,18 @@ class SessionTest extends TestCase
             'status' => 'voting',
         ]);
 
-        $response = $this->postJson('/api/sessions/TEST07/next-round');
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->postJson('/api/sessions/TEST07/next-round', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(400)
             ->assertJson([
@@ -248,8 +319,11 @@ class SessionTest extends TestCase
         ]);
 
         $session->update(['host_id' => $participant->id]);
+        $token = $participant->createToken('test-token')->plainTextToken;
 
-        $response = $this->getJson('/api/sessions/TEST08');
+        $response = $this->getJson('/api/sessions/TEST08', [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJsonStructure([
@@ -274,7 +348,17 @@ class SessionTest extends TestCase
             'status' => 'voting',
         ]);
 
-        $response = $this->getJson('/api/sessions/TEST09');
+        $participant = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Participant',
+            'emoji' => '👤',
+        ]);
+
+        $token = $participant->createToken('test-token')->plainTextToken;
+
+        $response = $this->getJson('/api/sessions/TEST09', [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson(['votes' => []]);
@@ -302,7 +386,11 @@ class SessionTest extends TestCase
             'emoji' => '👨‍💼',
         ]);
 
-        $response = $this->deleteJson("/api/sessions/LEAV01/participants/{$participant->id}");
+        $token = $participant->createToken('test-token')->plainTextToken;
+
+        $response = $this->deleteJson("/api/sessions/LEAV01/leave", [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -349,7 +437,11 @@ class SessionTest extends TestCase
             'emoji' => '👨‍💼',
         ]);
 
-        $response = $this->deleteJson("/api/sessions/LEAV02/participants/{$host->id}");
+        $token = $host->createToken('test-token')->plainTextToken;
+
+        $response = $this->deleteJson("/api/sessions/LEAV02/leave", [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -402,8 +494,12 @@ class SessionTest extends TestCase
             'voted_at' => now(),
         ]);
 
+        $token = $participant->createToken('test-token')->plainTextToken;
+
         // Participant leaves
-        $response = $this->deleteJson("/api/sessions/LEAV03/participants/{$participant->id}");
+        $response = $this->deleteJson("/api/sessions/LEAV03/leave", [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(200);
 
@@ -423,7 +519,23 @@ class SessionTest extends TestCase
 
     public function test_cannot_leave_non_existent_session(): void
     {
-        $response = $this->deleteJson('/api/sessions/NOTFND/participants/999');
+        $session = PokerSession::create([
+            'code' => 'EXISTS',
+            'current_round' => 1,
+            'status' => 'voting',
+        ]);
+
+        $participant = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Test',
+            'emoji' => '👤',
+        ]);
+
+        $token = $participant->createToken('test-token')->plainTextToken;
+
+        $response = $this->deleteJson('/api/sessions/NOTFND/leave', [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
 
         $response->assertStatus(404);
     }
@@ -436,9 +548,9 @@ class SessionTest extends TestCase
             'status' => 'voting',
         ]);
 
-        $response = $this->deleteJson('/api/sessions/LEAV04/participants/999');
+        $response = $this->deleteJson('/api/sessions/LEAV04/leave');
 
-        $response->assertStatus(404);
+        $response->assertStatus(401);
     }
 
     public function test_cannot_leave_participant_from_different_session(): void
@@ -461,10 +573,18 @@ class SessionTest extends TestCase
             'emoji' => '👨‍💼',
         ]);
 
-        // Try to remove participant from session1 (but they belong to session2)
-        $response = $this->deleteJson("/api/sessions/LEAV05/participants/{$participant->id}");
+        $token = $participant->createToken('test-token')->plainTextToken;
 
-        $response->assertStatus(404);
+        // Try to leave session1 (but they belong to session2)
+        $response = $this->deleteJson("/api/sessions/LEAV05/leave", [], [
+            'Authorization' => "Bearer {$token}",
+        ]);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'error' => 'Forbidden',
+                'message' => 'You are not a member of this session',
+            ]);
 
         // Participant should still exist
         $this->assertDatabaseHas('participants', [

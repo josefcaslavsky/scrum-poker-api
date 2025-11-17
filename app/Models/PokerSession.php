@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PokerSession extends Model
@@ -19,6 +20,14 @@ class PokerSession extends Model
     protected $casts = [
         'current_round' => 'integer',
     ];
+
+    /**
+     * Get the host participant of this session
+     */
+    public function host(): BelongsTo
+    {
+        return $this->belongsTo(Participant::class, 'host_id');
+    }
 
     /**
      * Get all participants in this session

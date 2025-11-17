@@ -48,12 +48,23 @@ class SessionController extends Controller
         // Update session with host_id
         $session->update(['host_id' => $host->id]);
 
+        // Generate API token for the host
+        $token = $host->createToken('session-token')->plainTextToken;
+
         return response()->json([
-            'code' => $session->code,
-            'session_id' => $session->id,
-            'participant_id' => $host->id,
-            'status' => $session->status,
-            'current_round' => $session->current_round,
+            'session' => [
+                'code' => $session->code,
+                'id' => $session->id,
+                'status' => $session->status,
+                'current_round' => $session->current_round,
+            ],
+            'participant' => [
+                'id' => $host->id,
+                'name' => $host->name,
+                'emoji' => $host->emoji,
+                'is_host' => $session->host_id === $host->id,
+            ],
+            'token' => $token,
         ], 201);
     }
 
@@ -76,14 +87,26 @@ class SessionController extends Controller
             'emoji' => $validated['emoji'] ?? '👤',
         ]);
 
+        // Generate API token for the participant
+        $token = $participant->createToken('session-token')->plainTextToken;
+
         broadcast(new ParticipantJoined($code, $participant));
 
         return response()->json([
-            'session_id' => $session->id,
-            'participant_id' => $participant->id,
-            'status' => $session->status,
-            'current_round' => $session->current_round,
+            'participant' => [
+                'id' => $participant->id,
+                'name' => $participant->name,
+                'emoji' => $participant->emoji,
+                'is_host' => $session->host_id === $participant->id,
+            ],
+            'session' => [
+                'id' => $session->id,
+                'code' => $session->code,
+                'status' => $session->status,
+                'current_round' => $session->current_round,
+            ],
             'participants' => $session->participants,
+            'token' => $token,
         ]);
     }
 
@@ -185,14 +208,20 @@ class SessionController extends Controller
 
     /**
      * Leave session (participant leaves or disconnects)
-     * DELETE /api/sessions/{code}/participants/{participantId}
+     * DELETE /api/sessions/{code}/leave
      */
-    public function leave(string $code, int $participantId)
+    public function leave(string $code)
     {
         $session = PokerSession::where('code', $code)->firstOrFail();
-        $participant = Participant::where('id', $participantId)
-            ->where('session_id', $session->id)
-            ->firstOrFail();
+        $participant = auth()->user();
+
+        // Verify participant belongs to this session
+        if ($participant->session_id !== $session->id) {
+            return response()->json([
+                'error' => 'Forbidden',
+                'message' => 'You are not a member of this session',
+            ], 403);
+        }
 
         // Check if participant is the host
         $isHost = $session->host_id === $participant->id;
@@ -221,7 +250,7 @@ class SessionController extends Controller
             // Broadcast participant left event
             broadcast(new ParticipantLeft(
                 $code,
-                $participantId,
+                $participant->id,
                 $participantName,
                 $remainingParticipants
             ));
