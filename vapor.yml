@@ -1,0 +1,18 @@
+id: 73845
+name: scrum-poker-api
+environments:
+    production:
+        runtime: 'php-8.4:al2'
+        domain: scrum-poker-api.munipolis-stage.com
+        database: db-common-stage
+        memory: 256
+        cli-memory: 256
+        timeout: 30
+        build:
+            - 'COMPOSER_MIRROR_PATH_REPOS=1 composer install --no-dev --no-scripts'
+            - 'composer run post-autoload-dump'
+            - 'php artisan event:cache'
+            - 'php artisan config:cache'
+            - 'php artisan route:cache'
+        deploy:
+            - 'php artisan migrate --force'

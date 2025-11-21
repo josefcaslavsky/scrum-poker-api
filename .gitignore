@@ -22,3 +22,7 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+.vapor/
+.env.staging
+
+.claude/settings.local.json
