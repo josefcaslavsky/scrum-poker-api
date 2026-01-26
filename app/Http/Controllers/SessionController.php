@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\NextRoundStarted;
 use App\Events\ParticipantJoined;
 use App\Events\ParticipantLeft;
+use App\Events\ParticipantRemoved;
 use App\Events\SessionEnded;
 use App\Events\CardsRevealed;
 use App\Events\VotingStarted;
@@ -261,5 +262,55 @@ class SessionController extends Controller
                 'remaining_participants' => $remainingParticipants,
             ]);
         }
+    }
+
+    /**
+     * Remove a participant from session (host only)
+     * DELETE /api/sessions/{code}/participants/{participantId}
+     */
+    public function removeParticipant(string $code, int $participantId)
+    {
+        $session = PokerSession::where('code', $code)->firstOrFail();
+
+        // Find the participant to remove
+        $participant = Participant::where('id', $participantId)
+            ->where('session_id', $session->id)
+            ->first();
+
+        if (!$participant) {
+            return response()->json([
+                'error' => 'Participant not found in this session',
+            ], 404);
+        }
+
+        // Prevent host from removing themselves
+        if ($participant->id === $session->host_id) {
+            return response()->json([
+                'error' => 'Host cannot remove themselves. Use leave endpoint instead.',
+            ], 400);
+        }
+
+        $participantName = $participant->name;
+
+        // Delete participant
+        $participant->delete();
+
+        // Get remaining participants
+        $remainingParticipants = $session->participants()->get()->toArray();
+
+        // Broadcast participant removed event
+        broadcast(new ParticipantRemoved(
+            $code,
+            $participantId,
+            $participantName,
+            $remainingParticipants
+        ));
+
+        return response()->json([
+            'message' => 'Participant removed from session',
+            'removed_participant_id' => $participantId,
+            'removed_participant_name' => $participantName,
+            'remaining_participants' => $remainingParticipants,
+        ]);
     }
 }

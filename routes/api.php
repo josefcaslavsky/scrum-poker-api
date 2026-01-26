@@ -26,5 +26,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/sessions/{code}/start', [SessionController::class, 'start']);
         Route::post('/sessions/{code}/reveal', [SessionController::class, 'reveal']);
         Route::post('/sessions/{code}/next-round', [SessionController::class, 'nextRound']);
+        Route::delete('/sessions/{code}/participants/{participantId}', [SessionController::class, 'removeParticipant']);
     });
 });
