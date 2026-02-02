@@ -92,6 +92,9 @@ class SessionController extends Controller
 
         broadcast(new ParticipantJoined($code, $participant));
 
+        // Refresh the participants relationship to include the newly created participant
+        $allParticipants = $session->participants()->get();
+
         return response()->json([
             'participant' => [
                 'id' => $participant->id,
@@ -105,7 +108,7 @@ class SessionController extends Controller
                 'status' => $session->status,
                 'current_round' => $session->current_round,
             ],
-            'participants' => $session->participants,
+            'participants' => $allParticipants,
             'token' => $token,
         ]);
     }

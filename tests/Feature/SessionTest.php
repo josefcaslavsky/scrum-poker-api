@@ -111,6 +111,50 @@ class SessionTest extends TestCase
         ]);
     }
 
+    public function test_joining_participant_is_included_in_participants_list(): void
+    {
+        $session = PokerSession::create([
+            'code' => 'JOIN01',
+            'current_round' => 1,
+            'status' => 'waiting',
+        ]);
+
+        $host = Participant::create([
+            'session_id' => $session->id,
+            'name' => 'Host',
+            'emoji' => '👤',
+        ]);
+
+        $session->update(['host_id' => $host->id]);
+
+        $response = $this->postJson("/api/sessions/JOIN01/join", [
+            'name' => 'NewUser',
+            'emoji' => '🆕',
+        ], [
+            'X-API-Key' => $this->apiKey,
+        ]);
+
+        $response->assertStatus(200);
+
+        // Get the joining participant's ID from the response
+        $joiningParticipantId = $response->json('participant.id');
+
+        // Verify the participants list includes the joining participant
+        $participants = $response->json('participants');
+        $participantIds = array_column($participants, 'id');
+
+        $this->assertContains($joiningParticipantId, $participantIds,
+            'The joining participant should be included in the participants list');
+
+        // Also verify the host is in the list
+        $this->assertContains($host->id, $participantIds,
+            'The host should be included in the participants list');
+
+        // Verify the total count is correct (host + joining participant)
+        $this->assertCount(2, $participants,
+            'The participants list should have exactly 2 participants');
+    }
+
     public function test_cannot_join_non_existent_session(): void
     {
         $response = $this->postJson('/api/sessions/NOTFND/join', [
